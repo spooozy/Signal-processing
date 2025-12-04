@@ -285,7 +285,7 @@ class App(tk.Tk):
         self.overlay_frame = tk.Frame(self, bg="black")
         self.overlay_frame.place(x=0, y=0, relwidth=1, relheight=1)
         img = Image.open(gif_path)
-        self.gif_frames = [ImageTk.PhotoImage(frame.copy().resize((1250, 700), Image.Resampling.LANCZOS)) for frame in ImageSequence.Iterator(img)]    
+        self.gif_frames = [ImageTk.PhotoImage(frame.copy().resize((600, 500), Image.Resampling.LANCZOS)) for frame in ImageSequence.Iterator(img)]    
         self.lbl_gif_anim = tk.Label(self.overlay_frame)
         self.lbl_gif_anim.pack(expand=True, fill="both")
         btn_close = tk.Button(self.overlay_frame, text="STOP", bg="yellow", font=("Arial", 14, "bold"), command=self.stop_magic)

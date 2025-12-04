@@ -39,20 +39,36 @@ class SignalGenerator:
         self.generated_signal.append(res_signal);
         return res_signal
     
-    def modulate_signal(self, carrier, modulator, mod_type = "AM"):
+    def modulate_signal(self, carrier, modulator, mod_type="AM", modulation_index=50.0):
         if not isinstance(carrier, Signal) or not isinstance(modulator, Signal):
             raise TypeError("Both objects must be signals")
         if carrier.sample_rate != modulator.sample_rate:
             raise ValueError("Samples rate of both signals must be equal")
+            
         min_len = min(len(carrier.signal_data), len(modulator.signal_data))
+        
         c_data = carrier.signal_data[:min_len]
-        m_data = modulator.signal_data[:min_len]
+        m_raw = modulator.signal_data[:min_len]
+        max_mod = np.max(np.abs(m_raw))
+        if max_mod > 0:
+            m_data = m_raw / max_mod 
+        else:
+            m_data = m_raw
+            
         time = carrier.time[:min_len]
         result_data = None
+
         if mod_type.upper() == "AM":
-            result_data = c_data * (1.0 + m_data)
+            depth = modulation_index
+            result_data = c_data * (1.0 + depth * m_data)
+
         elif mod_type.upper() == "FM":
-            phase_arg = 2 * np.pi * carrier.freq * time + m_data
+            deviation = modulation_index
+            
+            instantaneous_freq = carrier.freq + (deviation * m_data)
+            
+            phase_arg = 2 * np.pi * np.cumsum(instantaneous_freq) / self.sample_rate
+            
             if carrier.signal_form == 'sine':
                 result_data = np.sin(phase_arg)
             elif carrier.signal_form == 'square':
@@ -64,6 +80,7 @@ class SignalGenerator:
             else:
                 result_data = np.sin(phase_arg)
             result_data = result_data * carrier.ampl
+
         else:
             raise ValueError("Modulation type must be 'AM' or 'FM'")    
         
@@ -78,7 +95,10 @@ class SignalGenerator:
         res_signal.signal_data = result_data
         res_signal.time = time
         res_signal.base_name = f"Mod_{mod_type}_{carrier.base_name}_by_{modulator.base_name}"
-        res_signal.plot_name = f"{mod_type} Modulation: {carrier.freq}Hz by {modulator.freq}Hz"
+        
+        param_str = f"Depth={modulation_index}" if mod_type.upper() == "AM" else f"Dev={modulation_index}Hz"
+        res_signal.plot_name = f"{mod_type} Mod: {carrier.freq}Hz by {modulator.freq}Hz ({param_str})"
+        
         res_signal.normalize()
         res_signal.save()
         self.generated_signal.append(res_signal)
