@@ -5,6 +5,7 @@ import winsound
 import os
 from scipy.io import wavfile
 import matplotlib.pyplot as plt
+import numpy as np
 
 from DFTProcessor import DFTProcessor
 from FFTProcessor import FFTProcessor
@@ -128,7 +129,6 @@ class App(tk.Tk):
         self.filter_container = ttk.LabelFrame(self.frame_4, text="Filter Settings", padding=5)
         self.filter_container.pack(pady=5, fill='both')
 
-        # 1. Выбор типа фильтра
         lbl_type = ttk.Label(self.filter_container, text="Type:")
         lbl_type.pack(anchor="w")
         self.combo_filter = ttk.Combobox(self.filter_container, values=["Low Pass", "High Pass", "Band Pass"], state="readonly")
@@ -161,6 +161,9 @@ class App(tk.Tk):
 
         self.filter_freq_lbl = ttk.Label(self.filter_res_frame, text="Freq Domain")
         self.filter_freq_lbl.pack(pady=2)
+
+        self.btn_play_filt = ttk.Button(self.filter_container, text="PLAY", state="disabled")
+        self.btn_play_filt.pack(pady=(0, 10), fill='x')
 
     def get_sound_files(self):
         if not os.path.exists(self.sounds_dir):
@@ -272,10 +275,12 @@ class App(tk.Tk):
             if filter_type == "Low Pass":
                 filtered_signal = self.FilterProcessor.apply_low_pass(signal, f1, fs)
                 title_suffix = f"LP {f1}Hz"
+                self.save_filtered_sound(filtered_signal)
                 
             elif filter_type == "High Pass":
                 filtered_signal = self.FilterProcessor.apply_high_pass(signal, f1, fs)
                 title_suffix = f"HP {f1}Hz"
+                self.save_filtered_sound(filtered_signal)
                 
             elif filter_type == "Band Pass":
                 if f1 >= f2:
@@ -283,10 +288,12 @@ class App(tk.Tk):
                     return
                 filtered_signal = self.FilterProcessor.apply_band_pass(signal, f1, f2, fs)
                 title_suffix = f"BP {f1}-{f2}Hz"
+                self.save_filtered_sound(filtered_signal)
         
         except Exception as e:
             messagebox.showerror("Filter Error", str(e))
             return
+        
         N_view = 1000 
         if len(signal) > N_view:
             t_data = filtered_signal[:N_view]
@@ -298,8 +305,7 @@ class App(tk.Tk):
         times = [i/fs for i in range(len(t_data))]
         path_time = os.path.join(self.plots_dir, f"{self.base_name}_filt_time.png")
         self.save_plot(
-            f"Signal: {title_suffix}", "Time (s)", "Amp", 
-            path_time, times, t_data, kind='comparison', y_data_2=t_orig
+            f"Signal: {title_suffix}", "Time (s)", "Amp", path_time, times, t_data, kind='comparison', y_data_2=t_orig
         )
         self.display_plot(self.filter_time_lbl, path_time)
         N_fft = 4096
@@ -310,18 +316,33 @@ class App(tk.Tk):
             N_fft = len(seg_filt)
 
         self.FFTProcessor.compute_fft(seg_filt)
-        amps = self.FFTProcessor.get_amplitude_spectrum()
-        real_N = len(amps)
+
+        raw_amps = self.FFTProcessor.get_amplitude_spectrum()
+        real_N = len(raw_amps)
+        amps = [val / real_N for val in raw_amps] 
         freqs = [(k * fs / real_N) for k in range(real_N)]
         path_freq = os.path.join(self.plots_dir, f"{self.base_name}_filt_spec.png")
         half_N = real_N // 2
         
         self.save_plot(
-            f"Spectrum: {title_suffix}", "Freq (Hz)", "Mag", 
-            path_freq, freqs[:half_N], amps[:half_N], kind='stem'
+            f"Spectrum: {title_suffix}", "Freq (Hz)", "Amp", path_freq, freqs[:half_N], amps[:half_N], kind='stem'
         )
         self.display_plot(self.filter_freq_lbl, path_freq)
 
+    def save_filtered_sound(self, filtered_signal):
+        f_name_clean = self.combo_filter.get().replace(" ", "")
+        out_filename = f"{self.base_name}_{f_name_clean}.wav"
+        out_path = os.path.join(self.sounds_dir, out_filename)
+        try:
+            arr = np.array(filtered_signal)
+            arr = np.clip(arr, -32768, 32767)
+            data_to_write = arr.astype(np.int16)
+            wavfile.write(out_path, self.sample_rate, data_to_write)
+            self.btn_play_filt.config(state="normal", command=lambda: self.play_sound(out_path)
+            )
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Could not save wav: {e}") 
+    
     def run_transform(self, processor, N, suffix, lbl_amp, lbl_phase, lbl_restore, show_slice=False):
         if len(self.base_signal_data) == 0: return
         
@@ -340,7 +361,11 @@ class App(tk.Tk):
             else:
                 processor.compute_dft(source_segment)
                 
-            ampl = processor.get_amplitude_spectrum()
+            raw_ampl = processor.get_amplitude_spectrum()
+            real_N = len(raw_ampl)
+            ampl = [val / real_N for val in raw_ampl] 
+
+            phase = processor.get_phase_spectrum()
             phase = processor.get_phase_spectrum()
             restored = processor.compute_ifft() if hasattr(processor, 'compute_ifft') else processor.compute_idft()
         except Exception as e:

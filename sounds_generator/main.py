@@ -118,7 +118,7 @@ class App(tk.Tk):
         self.btn_play_mix.pack(fill='x', pady=10)
 
         ttk.Separator(container, orient='horizontal').pack(fill='x', pady=5)
-        self.btn_magic = tk.Button(container, text="Don't touch this button", fg="black", font=("Arial", 10, "bold"), command=lambda: self.play_HP())
+        self.btn_magic = tk.Button(container, text="Don't touch this button", bg = "lightblue", fg="black", font=("Arial", 10, "bold"), command=lambda: self.play_HP())
         self.btn_magic.pack(fill="x", pady=5)
 
     def create_column_3_widgets(self):
