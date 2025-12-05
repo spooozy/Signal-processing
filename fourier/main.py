@@ -7,6 +7,7 @@ from scipy.io import wavfile
 import matplotlib.pyplot as plt
 
 from DFTProcessor import DFTProcessor
+from FFTProcessor import FFTProcessor
 
 class App(tk.Tk):
     def __init__(self):
@@ -26,6 +27,7 @@ class App(tk.Tk):
         self.plots_dir = os.path.join(self.base_dir, "src", "plots")
 
         self.DFTProcessor = DFTProcessor()
+        self.FFTProcessor = FFTProcessor()
 
         self.columnconfigure(0, weight=1, uniform="group1")
         self.columnconfigure(1, weight=1, uniform="group1")
@@ -73,7 +75,7 @@ class App(tk.Tk):
         self.btn_play.pack(pady=10, fill='x')
         
         self.base_plot_container = ttk.LabelFrame(self.frame_1, text="Base Plot (Full)", padding=5)
-        self.base_plot_container.pack(pady=5, fill='x') # fill='x', чтобы не растягивался вертикально
+        self.base_plot_container.pack(pady=5, fill='x')
         self.base_plot_label = ttk.Label(self.base_plot_container, text="No plot")
         self.base_plot_label.pack(pady=5)
 
@@ -87,7 +89,7 @@ class App(tk.Tk):
         self.transform_container = ttk.LabelFrame(self.frame_2, text="DF transform", padding=5)
         self.transform_container.pack(pady=5, fill='both')
 
-        self.transform_btn = ttk.Button(self.transform_container, state="disabled", text="TRANSFORM", command=self.on_transform_pressed)
+        self.transform_btn = ttk.Button(self.transform_container, state="disabled", text="TRANSFORM", command=self.on_dft_pressed)
         self.transform_btn.pack(pady=5, fill='x')
 
         self.ampl_spectrum_lbl = ttk.Label(self.transform_container, text="Amplitude spectrum")
@@ -103,14 +105,24 @@ class App(tk.Tk):
         self.restore_plot_lbl.pack(pady=5)      
 
     def create_fft_widgets(self):
-        # Заглушки
-        btn = ttk.Button(self.frame_3, text="Рассчитать БПФ")
-        btn.pack(pady=5, fill='x')
-        check = ttk.Checkbutton(self.frame_3, text="Показать фазу")
-        check.pack(pady=5, anchor="w")
+        self.fft_container = ttk.LabelFrame(self.frame_3, text="FF transform", padding=5)
+        self.fft_container.pack(pady=5, fill='both')
+
+        self.fft_btn = ttk.Button(self.fft_container, state="disabled", text="TRANSFORM", command=self.on_fft_pressed)
+        self.fft_btn.pack(pady=5, fill='x')
+        self.fft_amp_lbl = ttk.Label(self.fft_container, text="Amp Spectrum")
+        self.fft_amp_lbl.pack(pady=2)
+
+        self.fft_phase_lbl = ttk.Label(self.fft_container, text="Phase Spectrum")
+        self.fft_phase_lbl.pack(pady=2)
+
+        self.fft_restore_frame = ttk.LabelFrame(self.frame_3, text="FF restore", padding=5)
+        self.fft_restore_frame.pack(pady=5, fill='both')
+
+        self.fft_restored_lbl = ttk.Label(self.fft_restore_frame, text="Restored")
+        self.fft_restored_lbl.pack(pady=5)
 
     def create_filter_widgets(self):
-        # Заглушки
         lbl = ttk.Label(self.frame_4, text="Тип фильтра:")
         lbl.pack(anchor="w")
         combo = ttk.Combobox(self.frame_4, values=["Low Pass", "High Pass", "Band Pass"])
@@ -150,6 +162,7 @@ class App(tk.Tk):
             
             self.btn_play.config(state="normal")
             self.transform_btn.config(state="normal")
+            self.fft_btn.config(state="normal")
             
             if os.path.exists(image_path):
                 self.display_plot(self.base_plot_label, image_path)
@@ -188,11 +201,31 @@ class App(tk.Tk):
             loc.config(text="Plot Error", image="")
             print(f"Error loading plot: {e}")
 
-    def on_transform_pressed(self):
-        if len(self.base_signal_data) == 0:
-            messagebox.showerror("Error", "Choose a sound at first")
-            return
-        N = 512
+    def on_dft_pressed(self):
+        self.run_transform(
+            processor=self.DFTProcessor,
+            N=1024,
+            suffix="dft",
+            lbl_amp=self.ampl_spectrum_lbl,
+            lbl_phase=self.phase_spectrum_lbl,
+            lbl_restore=self.restore_plot_lbl,
+            show_slice=True
+        )
+
+    def on_fft_pressed(self):
+        self.run_transform(
+            processor=self.FFTProcessor,
+            N=1024, 
+            suffix="fft",
+            lbl_amp=self.fft_amp_lbl,
+            lbl_phase=self.fft_phase_lbl,
+            lbl_restore=self.fft_restored_lbl,
+            show_slice=False
+        )
+
+    def run_transform(self, processor, N, suffix, lbl_amp, lbl_phase, lbl_restore, show_slice=False):
+        if len(self.base_signal_data) == 0: return
+        
         fs = self.sample_rate
         
         if len(self.base_signal_data) > N:
@@ -201,12 +234,16 @@ class App(tk.Tk):
         else:
             source_segment = self.base_signal_data
             N = len(source_segment)
+
         try:
-            self.DFTProcessor.compute_dft(source_segment)
-            
-            ampl_spectrum = self.DFTProcessor.get_amplitude_spectrum()
-            phase_spectrum = self.DFTProcessor.get_phase_spectrum()
-            restored_signal = self.DFTProcessor.compute_idft()
+            if hasattr(processor, 'compute_fft'):
+                processor.compute_fft(source_segment)
+            else:
+                processor.compute_dft(source_segment)
+                
+            ampl = processor.get_amplitude_spectrum()
+            phase = processor.get_phase_spectrum()
+            restored = processor.compute_ifft() if hasattr(processor, 'compute_ifft') else processor.compute_idft()
         except Exception as e:
             messagebox.showerror("Math Error", str(e))
             return
@@ -214,71 +251,48 @@ class App(tk.Tk):
         freqs = [(k * fs / N) for k in range(N)]
         times = [(i / fs) for i in range(N)]
 
-        amp_path = os.path.join(self.plots_dir, f"{self.base_name}_dft_amp.png")
-        self.save_plot(
-            title="Amplitude Spectrum", 
-            xlabel="Frequency (Hz)", 
-            ylabel="Amplitude", 
-            filepath=amp_path, 
-            x_data=freqs, 
-            y_data=ampl_spectrum,
-            kind='stem'
-        )
-        self.display_plot(self.ampl_spectrum_lbl, amp_path)
+        path_amp = os.path.join(self.plots_dir, f"{self.base_name}_{suffix}_amp.png")
+        self.save_plot("Amplitude", "Hz", "Amp", path_amp, freqs, ampl, 'stem')
+        self.display_plot(lbl_amp, path_amp)
 
-        phase_path = os.path.join(self.plots_dir, f"{self.base_name}_dft_phase.png")
-        self.save_plot(
-            title="Phase Spectrum", 
-            xlabel="Frequency (Hz)", 
-            ylabel="Phase (Rad)", 
-            filepath=phase_path, 
-            x_data=freqs, 
-            y_data=phase_spectrum,
-            kind='stem'
-        )
-        self.display_plot(self.phase_spectrum_lbl, phase_path)
+        path_phase = os.path.join(self.plots_dir, f"{self.base_name}_{suffix}_phase.png")
+        self.save_plot("Phase", "Hz", "Rad", path_phase, freqs, phase, 'stem')
+        self.display_plot(lbl_phase, path_phase)
 
-        restore_path = os.path.join(self.plots_dir, f"{self.base_name}_dft_restored.png")
-        self.save_plot(
-            title="Original vs Restored", 
-            xlabel="Time (s)", 
-            ylabel="Signal", 
-            filepath=restore_path, 
-            x_data=times, 
-            y_data=restored_signal, 
-            kind='comparison',
-            y_data_2=source_segment
-        )
-        self.display_plot(self.restore_plot_lbl, restore_path)
-        
-        slice_path = os.path.join(self.plots_dir, f"{self.base_name}_slice.png")
-        self.save_plot("Used Slice", "Time", "Val", slice_path, times, source_segment, kind='line')
-        self.display_plot(self.used_plot_label, slice_path)
+        path_rest = os.path.join(self.plots_dir, f"{self.base_name}_{suffix}_rest.png")
+        self.save_plot("Original vs Restored", "Sec", "Val", path_rest, times, restored, 'comparison', source_segment)
+        self.display_plot(lbl_restore, path_rest)
+        if show_slice:
+            path_slice = os.path.join(self.plots_dir, f"{self.base_name}_slice.png")
+            self.save_plot(f"Slice (N={N})", "Sec", "Val", path_slice, times, source_segment, 'line')
+            self.display_plot(self.used_plot_label, path_slice)
 
     def save_plot(self, title, xlabel, ylabel, filepath, x_data, y_data, kind='line', y_data_2=None):
-        plt.figure(figsize=(4, 2.5))
+        plt.figure(figsize=(3.5, 2.2))
+
         if kind == 'stem':
-            plt.stem(x_data, y_data)
+
+            # if len(x_data) > 200:
+            #     plt.plot(x_data, y_data, linewidth=0.8)
+            # else:
+            #     plt.stem(x_data, y_data)
+
+            plt.plot(x_data, y_data)
         elif kind == 'comparison' and y_data_2 is not None:
-            plt.plot(x_data, y_data_2, label='Original', color='blue', alpha=0.5, linewidth=2)
-            plt.plot(x_data, y_data, label='Restored', color='red', linestyle='--', linewidth=1.5)
-            plt.legend()
+            plt.plot(x_data, y_data_2, label='Orig', color='blue', alpha=0.5, linewidth=1.5)
+            plt.plot(x_data, y_data, label='Rest', color='red', linestyle='--', linewidth=1)
+            plt.legend(fontsize=6)
         else:
             plt.plot(x_data, y_data)
 
-        plt.title(title, fontsize=10)
-        plt.xlabel(xlabel, fontsize=8)
-        plt.ylabel(ylabel, fontsize=8)
+        plt.title(title, fontsize=9)
+        plt.xlabel(xlabel, fontsize=7)
+        plt.ylabel(ylabel, fontsize=7)
         plt.grid(True, alpha=0.3)
-        plt.tick_params(axis='both', which='major', labelsize=7)
+        plt.tick_params(labelsize=6)
         plt.tight_layout()
-        
-        try:
-            plt.savefig(filepath, dpi=100)
-        except Exception as e:
-            print(f"Error saving plot: {e}")
-        finally:
-            plt.close()
+        try: plt.savefig(filepath, dpi=90); plt.close()
+        except: pass
 
 if __name__ == "__main__":
     app = App()
