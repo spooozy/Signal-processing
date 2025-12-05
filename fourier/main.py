@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 from DFTProcessor import DFTProcessor
 from FFTProcessor import FFTProcessor
+from FilterProcessor import FilterProcessor
 
 class App(tk.Tk):
     def __init__(self):
@@ -28,6 +29,7 @@ class App(tk.Tk):
 
         self.DFTProcessor = DFTProcessor()
         self.FFTProcessor = FFTProcessor()
+        self.FilterProcessor = FilterProcessor()
 
         self.columnconfigure(0, weight=1, uniform="group1")
         self.columnconfigure(1, weight=1, uniform="group1")
@@ -96,7 +98,7 @@ class App(tk.Tk):
         self.ampl_spectrum_lbl.pack(pady=5)
 
         self.phase_spectrum_lbl = ttk.Label(self.transform_container, text="Phase spectrum")
-        self.phase_spectrum_lbl.pack(pady=5)
+        self.phase_spectrum_lbl.pack(pady=2)
 
         self.restore_container = ttk.LabelFrame(self.frame_2, text="DF restore", padding=5)
         self.restore_container.pack(pady=5, fill='both')
@@ -123,13 +125,42 @@ class App(tk.Tk):
         self.fft_restored_lbl.pack(pady=5)
 
     def create_filter_widgets(self):
-        lbl = ttk.Label(self.frame_4, text="Тип фильтра:")
-        lbl.pack(anchor="w")
-        combo = ttk.Combobox(self.frame_4, values=["Low Pass", "High Pass", "Band Pass"])
-        combo.current(0)
-        combo.pack(pady=5, fill='x')
-        btn = ttk.Button(self.frame_4, text="Применить фильтр")
-        btn.pack(pady=20, fill='x')
+        self.filter_container = ttk.LabelFrame(self.frame_4, text="Filter Settings", padding=5)
+        self.filter_container.pack(pady=5, fill='both')
+
+        # 1. Выбор типа фильтра
+        lbl_type = ttk.Label(self.filter_container, text="Type:")
+        lbl_type.pack(anchor="w")
+        self.combo_filter = ttk.Combobox(self.filter_container, values=["Low Pass", "High Pass", "Band Pass"], state="readonly")
+        self.combo_filter.current(0)
+        self.combo_filter.pack(fill='x', pady=2)
+
+        input_frame = ttk.Frame(self.filter_container)
+        input_frame.pack(fill='x', pady=5)
+
+        lbl_f1 = ttk.Label(input_frame, text="Freq 1 (Hz):")
+        lbl_f1.pack(anchor="w")
+        self.entry_cutoff1 = ttk.Entry(input_frame)
+        self.entry_cutoff1.insert(0, "1000") 
+        self.entry_cutoff1.pack(fill='x', pady=(0, 5))
+
+        lbl_f2 = ttk.Label(input_frame, text="Freq 2 (Hz) [BandPass only]:")
+        lbl_f2.pack(anchor="w")
+        self.entry_cutoff2 = ttk.Entry(input_frame)
+        self.entry_cutoff2.insert(0, "5000")
+        self.entry_cutoff2.pack(fill='x')
+
+        self.btn_filter = ttk.Button(self.filter_container, text="APPLY FILTER", state="disabled", command=self.on_filter_pressed)
+        self.btn_filter.pack(pady=10, fill='x')
+
+        self.filter_res_frame = ttk.LabelFrame(self.frame_4, text="Result", padding=5)
+        self.filter_res_frame.pack(pady=5, fill='both')
+
+        self.filter_time_lbl = ttk.Label(self.filter_res_frame, text="Time Domain")
+        self.filter_time_lbl.pack(pady=2)
+
+        self.filter_freq_lbl = ttk.Label(self.filter_res_frame, text="Freq Domain")
+        self.filter_freq_lbl.pack(pady=2)
 
     def get_sound_files(self):
         if not os.path.exists(self.sounds_dir):
@@ -163,6 +194,7 @@ class App(tk.Tk):
             self.btn_play.config(state="normal")
             self.transform_btn.config(state="normal")
             self.fft_btn.config(state="normal")
+            self.btn_filter.config(state="normal")
             
             if os.path.exists(image_path):
                 self.display_plot(self.base_plot_label, image_path)
@@ -222,6 +254,73 @@ class App(tk.Tk):
             lbl_restore=self.fft_restored_lbl,
             show_slice=False
         )
+
+    def on_filter_pressed(self):
+        if len(self.base_signal_data) == 0:
+            return
+        filter_type = self.combo_filter.get()
+        try:
+            f1 = float(self.entry_cutoff1.get())
+            f2 = float(self.entry_cutoff2.get())
+        except ValueError:
+            messagebox.showerror("Error", "Enter valid frequencies (numbers)")
+            return
+        
+        fs = self.sample_rate
+        signal = self.base_signal_data
+        try:
+            if filter_type == "Low Pass":
+                filtered_signal = self.FilterProcessor.apply_low_pass(signal, f1, fs)
+                title_suffix = f"LP {f1}Hz"
+                
+            elif filter_type == "High Pass":
+                filtered_signal = self.FilterProcessor.apply_high_pass(signal, f1, fs)
+                title_suffix = f"HP {f1}Hz"
+                
+            elif filter_type == "Band Pass":
+                if f1 >= f2:
+                    messagebox.showwarning("Warning", "Freq 1 must be < Freq 2 for Band Pass")
+                    return
+                filtered_signal = self.FilterProcessor.apply_band_pass(signal, f1, f2, fs)
+                title_suffix = f"BP {f1}-{f2}Hz"
+        
+        except Exception as e:
+            messagebox.showerror("Filter Error", str(e))
+            return
+        N_view = 1000 
+        if len(signal) > N_view:
+            t_data = filtered_signal[:N_view]
+            t_orig = signal[:N_view]
+        else:
+            t_data = filtered_signal
+            t_orig = signal
+        
+        times = [i/fs for i in range(len(t_data))]
+        path_time = os.path.join(self.plots_dir, f"{self.base_name}_filt_time.png")
+        self.save_plot(
+            f"Signal: {title_suffix}", "Time (s)", "Amp", 
+            path_time, times, t_data, kind='comparison', y_data_2=t_orig
+        )
+        self.display_plot(self.filter_time_lbl, path_time)
+        N_fft = 4096
+        if len(filtered_signal) > N_fft:
+            seg_filt = filtered_signal[:N_fft]
+        else:
+            seg_filt = filtered_signal
+            N_fft = len(seg_filt)
+
+        self.FFTProcessor.compute_fft(seg_filt)
+        amps = self.FFTProcessor.get_amplitude_spectrum()
+        real_N = len(amps)
+        freqs = [(k * fs / real_N) for k in range(real_N)]
+        path_freq = os.path.join(self.plots_dir, f"{self.base_name}_filt_spec.png")
+        half_N = real_N // 2
+        
+        self.save_plot(
+            f"Spectrum: {title_suffix}", "Freq (Hz)", "Mag", 
+            path_freq, freqs[:half_N], amps[:half_N], kind='stem'
+        )
+        self.display_plot(self.filter_freq_lbl, path_freq)
 
     def run_transform(self, processor, N, suffix, lbl_amp, lbl_phase, lbl_restore, show_slice=False):
         if len(self.base_signal_data) == 0: return
