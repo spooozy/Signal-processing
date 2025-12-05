@@ -59,14 +59,11 @@ class SignalGenerator:
         result_data = None
 
         if mod_type.upper() == "AM":
-            depth = modulation_index
-            result_data = c_data * (1.0 + depth * m_data)
+            result_data = c_data * (1.0 + 0.5 * m_data)
 
         elif mod_type.upper() == "FM":
             deviation = modulation_index
-            
             instantaneous_freq = carrier.freq + (deviation * m_data)
-            
             phase_arg = 2 * np.pi * np.cumsum(instantaneous_freq) / self.sample_rate
             
             if carrier.signal_form == 'sine':

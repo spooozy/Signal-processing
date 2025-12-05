@@ -25,11 +25,11 @@ class Signal:
         if self.signal_form == 'sine':
             signal = np.sin(arg)
         elif self.signal_form == 'square':
-            signal = scipy.signal.square(arg, duty=duty)
+            signal = self.square_wave(arg, duty)
         elif self.signal_form == 'triangle':
-            signal = scipy.signal.sawtooth(arg, width = 0.5)
+            signal = self.triangle_wave(arg)
         elif self.signal_form == 'sawtooth':
-            signal = scipy.signal.sawtooth(arg, width = 1)
+            signal = self.sawtooth_wave(arg)
         elif self.signal_form == 'noise':
             signal = np.random.uniform(-1, 1, len(self.time))
         else:
@@ -37,6 +37,23 @@ class Signal:
         
         self.signal_data = signal * self.ampl
         return self.signal_data
+    
+    def square_wave(self, arg, duty=0.5):
+        normalized_arg = arg % (2 * np.pi)
+        threshold = duty * 2 * np.pi
+        signal = np.where(normalized_arg < threshold, 1.0, -1.0)
+        return signal
+    
+    def triangle_wave(self, arg):
+        phase = (self.time * self.freq) % 1.0
+        signal = 1 - 2 * np.abs(1 - 2 * phase)
+        return signal
+
+    def sawtooth_wave(self, arg):
+        normalized_arg = arg % (2 * np.pi)
+        phase = normalized_arg / (2 * np.pi)
+        signal = 2 * phase - 1
+        return signal
     
     def normalize(self):
         if self.signal_data is None:
